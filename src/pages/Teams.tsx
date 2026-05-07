@@ -36,6 +36,7 @@ interface ImportedDataRow {
   name?: string;
   email?: string;
   "Experience Level"?: string;
+  "Professional Experience Level"?: string;
   experience_level?: string;
   experienceLevel?: string;
 }
@@ -278,7 +279,7 @@ const Teams = () => {
 
     // Process and categorize users
     const processedUsers: User[] = checkedInUsers.map((row, index) => {
-      const experienceLevel = row['Experience Level'] || row.experience_level || row.experienceLevel;
+      const experienceLevel = row['Experience Level'] || row.experience_level || row.experienceLevel || row['Professional Experience Level'];
       const isStudent = experienceLevel && 
         (experienceLevel.toLowerCase().includes('student') || 
          experienceLevel.toLowerCase().includes('undergraduate') ||
