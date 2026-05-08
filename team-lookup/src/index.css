@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-bg: #fafaf9;
+  --color-surface: #f1f5f9;
+  --color-card: #ffffff;
+  --color-border: #e2e8f0;
+  --color-text: #0f172a;
+  --color-muted: #64748b;
+  --color-primary: #004aad;
+  --color-primary-deep: #003885;
+  --color-accent: #0066ff;
+  --color-accent-strong: #0052cc;
+  --gradient-hero: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    #f8fafc 50%,
+    #f1f5f9 100%
+  );
+  --blur-radial: radial-gradient(
+    circle at 20% 20%,
+    rgb(0 102 255 / 0.08),
+    transparent 55%
+  );
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+::selection {
+  background-color: rgb(0 102 255 / 0.2);
+  color: var(--color-text);
+}
+
+.hero-grid {
+  background-image:
+    linear-gradient(rgb(0 74 173 / 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 74 173 / 0.06) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+.success-dialog::backdrop {
+  background-color: rgb(15 23 42 / 0.45);
+}
+
+.hero-stripes {
+  background: repeating-linear-gradient(
+    -35deg,
+    rgb(0 102 255 / 0.03),
+    rgb(0 102 255 / 0.03) 2px,
+    transparent 2px,
+    transparent 14px
+  );
+}

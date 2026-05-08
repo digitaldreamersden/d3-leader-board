@@ -10,7 +10,9 @@ import {
   Briefcase,
   X,
   Trash2,
+  CloudUpload,
 } from "lucide-react";
+import { toast } from "sonner";
 import Papa from "papaparse";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
@@ -22,6 +24,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { executeSyncLeaderboardTeamMembers } from "@/lib/sync-leaderboard-team-members";
 
 
 interface User {
@@ -88,6 +91,7 @@ const Teams = () => {
   // Team generation form state
   const [teamSize, setTeamSize] = useState(4);
   const [minWorkingProfessionals, setMinWorkingProfessionals] = useState(1);
+  const [isSyncingToSupabase, setIsSyncingToSupabase] = useState(false);
 
   // Persist teams to localStorage whenever it changes
   React.useEffect(() => {
@@ -395,6 +399,26 @@ const Teams = () => {
     setShowTeamGeneration(false);
   };
 
+  const executeSyncTeamsToSupabase = async (): Promise<void> => {
+    try {
+      setIsSyncingToSupabase(true);
+      const outcome = await executeSyncLeaderboardTeamMembers(teams);
+      if (outcome.rowCount === 0) {
+        toast.message("No one to upload yet", {
+          description: "Add team members with a name and email, then try again.",
+        });
+        return;
+      }
+      toast.success("Teams saved online", {
+        description: `Uploaded ${outcome.rowCount} people from your teams.`,
+      });
+    } catch (err) {
+      const message: string = err instanceof Error ? err.message : String(err);
+      toast.error("Could not save online", { description: message });
+    } finally {
+      setIsSyncingToSupabase(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
@@ -414,61 +438,90 @@ const Teams = () => {
 
         {/* Controls */}
         <div className="mb-8 space-y-4">
-          {/* Import CSV/XLSX Section */}
-          <Card className="bg-gray-800 border-gray-700">
-            <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <Upload className="w-5 h-5" />
-                Import Attendees
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
-                <input
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  onChange={handleFileImport}
-                  className="hidden"
-                  id="file-import"
-                />
-                <label
-                  htmlFor="file-import"
-                  className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  <FileText className="w-4 h-4" />
-                  Choose CSV/Excel File
-                </label>
-                <span className="text-sm text-gray-400">
-                  Supports CSV, XLSX, and XLS files
-                </span>
-              </div>
-              {totalCount > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gray-700 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    <UserCheck className="w-5 h-5 text-blue-400" />
-                    <div>
-                      <div className="text-white font-medium">Total</div>
-                      <div className="text-2xl font-bold text-blue-400">{totalCount}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <GraduationCap className="w-5 h-5 text-green-400" />
-                    <div>
-                      <div className="text-white font-medium">Students</div>
-                      <div className="text-2xl font-bold text-green-400">{students.length}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Briefcase className="w-5 h-5 text-purple-400" />
-                    <div>
-                      <div className="text-white font-medium">Working Professionals</div>
-                      <div className="text-2xl font-bold text-purple-400">{workingProfessionals.length}</div>
-                    </div>
-                  </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <Card className="bg-gray-800 border-gray-700 flex flex-col">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Upload className="w-5 h-5" />
+                  Import attendees
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 flex-1 flex flex-col">
+                <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-3">
+                  <input
+                    type="file"
+                    accept=".csv,.xlsx,.xls"
+                    onChange={handleFileImport}
+                    className="hidden"
+                    id="file-import"
+                  />
+                  <label
+                    htmlFor="file-import"
+                    className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors w-fit"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Choose file
+                  </label>
+                  <span className="text-sm text-gray-400">
+                    CSV, Excel (.xlsx, .xls)
+                  </span>
                 </div>
-              )}
-            </CardContent>
-          </Card>
+                <p className="text-sm text-gray-400">
+                  Pull in your attendee list so you can divide people into teams.
+                </p>
+                {totalCount > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-gray-700 rounded-lg mt-auto">
+                    <div className="flex items-center gap-2">
+                      <UserCheck className="w-5 h-5 text-blue-400 shrink-0" />
+                      <div>
+                        <div className="text-white font-medium">Total</div>
+                        <div className="text-2xl font-bold text-blue-400">{totalCount}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <GraduationCap className="w-5 h-5 text-green-400 shrink-0" />
+                      <div>
+                        <div className="text-white font-medium">Students</div>
+                        <div className="text-2xl font-bold text-green-400">{students.length}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="w-5 h-5 text-purple-400 shrink-0" />
+                      <div>
+                        <div className="text-white font-medium">Working professionals</div>
+                        <div className="text-2xl font-bold text-purple-400">{workingProfessionals.length}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gray-800 border-gray-700 flex flex-col">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <CloudUpload className="w-5 h-5" />
+                  Save teams online
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 flex-1 flex flex-col">
+                <p className="text-sm text-gray-400">
+                  Upload your roster to the shared leader board list (names, emails, teams).
+                </p>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    void executeSyncTeamsToSupabase();
+                  }}
+                  disabled={isSyncingToSupabase}
+                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 self-start"
+                >
+                  <CloudUpload className="w-4 h-4 mr-2" />
+                  {isSyncingToSupabase ? "Uploading…" : "Upload teams"}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Team Generation Form */}
           {showTeamGeneration && (
