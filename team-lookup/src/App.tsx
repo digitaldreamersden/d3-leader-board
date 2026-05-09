@@ -32,7 +32,8 @@ export const SITE_COPY: CommunitySiteCopy = {
   communitySiteUrl: "https://digitaldreamersden.in/",
   communityEventsUrl: "https://digitaldreamersden.in/#events",
   supportEmail: "d3communityofficial@gmail.com",
-  brandLogoSrc: "/full_logo.png",
+  // Respect Vite `base` (e.g. GitHub Pages project URL); `/file.png` would miss the repo prefix.
+  brandLogoSrc: `${import.meta.env.BASE_URL}full_logo.png`,
 };
 
 const TeamLookupPage = lazy(async () => import("@/pages/TeamLookupPage"));
