@@ -11,6 +11,8 @@ import {
   X,
   Trash2,
   CloudUpload,
+  Edit,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
 import Papa from "papaparse";
@@ -24,14 +26,21 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { executeSyncLeaderboardTeamMembers } from "@/lib/sync-leaderboard-team-members";
-
-
-interface User {
-  name: string;
-  email: string;
-  experienceLevel: "student" | "working professional";
-}
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { executeSyncLeaderboardTeamMembers, executeDeleteAllLeaderboardTeamMembers } from "@/lib/sync-leaderboard-team-members";
+import { useTeams, type Team, type User } from "@/contexts/TeamsContext";
+import { useMilestones } from "@/hooks/useMilestones";
+import { useTimer } from "@/contexts/TimerContext";
 
 interface ImportedDataRow {
   [key: string]: string | number | undefined;
@@ -44,32 +53,20 @@ interface ImportedDataRow {
   experienceLevel?: string;
 }
 
-interface Team {
-  id: string;
-  name: string;
-  description?: string;
-  members: User[];
-}
-
 
 const Teams = () => {
-  const [teams, setTeams] = useState<Team[]>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("teams");
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          return parsed.map((team: Team) => ({
-            ...team,
-            members: team.members || [],
-          }));
-        } catch {
-          return [];
-        }
-      }
-    }
-    return [];
-  });
+  const { teams, setTeams } = useTeams();
+  const { milestones: milestoneConfigs } = useMilestones();
+  const { state: timerState } = useTimer();
+
+  // Timer-based restrictions:
+  // - running/expired: fully locked (no add, no delete, no import, no upload)
+  // - paused: allow creating teams and uploading to supabase, but not file import or delete
+  // - idle: fully editable
+  const isTimerActive = timerState.status === "running" || timerState.status === "expired";
+  const canAddTeams = timerState.status === "idle" || timerState.status === "paused";
+  const canImportFile = timerState.status === "idle";
+  const canDeleteTeams = timerState.status === "idle";
 
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamDescription, setNewTeamDescription] = useState("");
@@ -93,13 +90,15 @@ const Teams = () => {
   const [teamSize, setTeamSize] = useState(4);
   const [minWorkingProfessionals, setMinWorkingProfessionals] = useState(1);
   const [isSyncingToSupabase, setIsSyncingToSupabase] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
-  // Persist teams to localStorage whenever it changes
-  React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("teams", JSON.stringify(teams));
-    }
-  }, [teams]);
+  // Edit team state
+  const [editingTeamId, setEditingTeamId] = useState<string | null>(null);
+  const [editMemberName, setEditMemberName] = useState("");
+  const [editMemberEmail, setEditMemberEmail] = useState("");
+  const [editMemberExperience, setEditMemberExperience] = useState<"student" | "working professional">("student");
+
+  const canEditTeams = timerState.status === "idle" || timerState.status === "paused";
 
   const filteredAndSortedTeams = useMemo(() => {
     const filtered = teams.filter((team) => {
@@ -159,6 +158,15 @@ const Teams = () => {
     });
   }, [teams, searchTerm]);
 
+  // Live attendee stats computed from teams (always up-to-date)
+  const liveStats = useMemo(() => {
+    const allMembers = teams.flatMap((t) => t.members);
+    const total = allMembers.length;
+    const studentCount = allMembers.filter((m) => m.experienceLevel === "student").length;
+    const wpCount = allMembers.filter((m) => m.experienceLevel === "working professional").length;
+    return { total, studentCount, wpCount };
+  }, [teams]);
+
   const addTeam = () => {
     if (newTeamName.trim()) {
       const newTeam: Team = {
@@ -166,6 +174,8 @@ const Teams = () => {
         name: newTeamName.trim(),
         description: newTeamDescription.trim() || undefined,
         members: [],
+        milestones: milestoneConfigs.map((m) => ({ ...m, completed: false })),
+        totalTime: 0,
       };
       setTeams([...teams, newTeam]);
       setNewTeamName("");
@@ -177,9 +187,81 @@ const Teams = () => {
     setTeams(teams.filter((team) => team.id !== teamId));
   };
 
+  // Edit team functions
+  const addMemberToTeam = (teamId: string) => {
+    if (!editMemberName.trim() || !editMemberEmail.trim()) return;
+    const normalizedEmail = editMemberEmail.trim().toLowerCase();
+    // Check if already in any team (including this one)
+    for (const team of teams) {
+      const found = team.members.find(
+        (m) => m.email.trim().toLowerCase() === normalizedEmail
+      );
+      if (found) {
+        toast.error(`Member already in "${team.name}"`, {
+          description: `${editMemberEmail.trim()} is already assigned to ${team.name}.`,
+        });
+        return;
+      }
+    }
+    const newMember: User = {
+      name: editMemberName.trim(),
+      email: editMemberEmail.trim(),
+      experienceLevel: editMemberExperience,
+    };
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id === teamId
+          ? { ...team, members: [...team.members, newMember] }
+          : team
+      )
+    );
+    setEditMemberName("");
+    setEditMemberEmail("");
+    setEditMemberExperience("student");
+  };
+
+  const removeMemberFromTeam = (teamId: string, memberIndex: number) => {
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id === teamId
+          ? { ...team, members: team.members.filter((_, i) => i !== memberIndex) }
+          : team
+      )
+    );
+  };
+
   // Manual team creation functions
+  const findMemberInExistingTeams = (email: string): string | null => {
+    const normalizedEmail = email.trim().toLowerCase();
+    for (const team of teams) {
+      const found = team.members.find(
+        (m) => m.email.trim().toLowerCase() === normalizedEmail
+      );
+      if (found) return team.name;
+    }
+    return null;
+  };
+
   const addMemberToManualTeam = () => {
     if (currentMemberName.trim() && currentMemberEmail.trim()) {
+      // Check if already in another team
+      const existingTeam = findMemberInExistingTeams(currentMemberEmail);
+      if (existingTeam) {
+        toast.error(`Member already in "${existingTeam}"`, {
+          description: `${currentMemberEmail.trim()} is already assigned to ${existingTeam}.`,
+        });
+        return;
+      }
+      // Check if already added to current manual form
+      const alreadyInForm = manualTeamMembers.find(
+        (m) => m.email.trim().toLowerCase() === currentMemberEmail.trim().toLowerCase()
+      );
+      if (alreadyInForm) {
+        toast.error("Duplicate member", {
+          description: `${currentMemberEmail.trim()} is already added to this team.`,
+        });
+        return;
+      }
       const newMember: User = {
         name: currentMemberName.trim(),
         email: currentMemberEmail.trim(),
@@ -209,21 +291,34 @@ const Teams = () => {
       ? Math.max(...existingTeamNumbers) + 1 
       : 1;
     
-    return `Team ${nextTeamNumber}`;
+    return `Team ${String(nextTeamNumber).padStart(2, "0")}`;
   };
 
   const createManualTeam = () => {
     if (newTeamName.trim() && manualTeamMembers.length > 0) {
+      // Check for duplicate team name
+      const duplicateTeam = teams.find(
+        (t) => t.name.trim().toLowerCase() === newTeamName.trim().toLowerCase()
+      );
+      if (duplicateTeam) {
+        toast.error("Duplicate team name", {
+          description: `A team named "${duplicateTeam.name}" already exists.`,
+        });
+        return;
+      }
+
       // Auto-generate description based on team members
       const workingProfCount = manualTeamMembers.filter(member => member.experienceLevel === 'working professional').length;
       const studentCount = manualTeamMembers.filter(member => member.experienceLevel === 'student').length;
       const autoGeneratedDescription = `Generated team with ${manualTeamMembers.length} members (${workingProfCount} working professionals, ${studentCount} students)`;
       
       const newTeam: Team = {
-        id: `Date.now().toString()` + `${teams.length + 1}`,
+        id: Date.now().toString() + `-${teams.length + 1}`,
         name: newTeamName.trim(),
         description: autoGeneratedDescription,
         members: manualTeamMembers,
+        milestones: milestoneConfigs.map((m) => ({ ...m, completed: false })),
+        totalTime: 0,
       };
       setTeams([...teams, newTeam]);
       setNewTeamName("");
@@ -335,13 +430,6 @@ const Teams = () => {
       return;
     }
 
-    // Check if we have enough students for the remaining slots
-    const studentsNeeded = maxTeams * teamSize - totalWorkingProfessionals;
-    if (totalStudents < studentsNeeded) {
-      alert(`Not enough students. You need ${studentsNeeded} students to fill the remaining slots after assigning working professionals.`);
-      return;
-    }
-
     // Shuffle arrays to randomize team assignment
     const shuffledStudents = [...students].sort(() => Math.random() - 0.5);
     const shuffledWorkingProfessionals = [...workingProfessionals].sort(() => Math.random() - 0.5);
@@ -353,7 +441,6 @@ const Teams = () => {
       
       // Calculate working professionals for this team
       let workingProfForThisTeam = workingProfPerTeam;
-      // Distribute remaining working professionals to first few teams
       if (i < remainingWorkingProfs) {
         workingProfForThisTeam += 1;
       }
@@ -369,31 +456,35 @@ const Teams = () => {
         teamMembers.push(shuffledStudents.pop()!);
       }
 
-      // Validate team composition
-      const workingProfCount = teamMembers.filter(member => member.experienceLevel === 'working professional').length;
-      const studentCount = teamMembers.filter(member => member.experienceLevel === 'student').length;
-      
-      // Ensure team meets minimum working professional requirement
-      if (workingProfCount < minWorkingProfessionals) {
-        alert(`Unable to create team ${i + 1} with minimum ${minWorkingProfessionals} working professionals. Not enough working professionals available.`);
-        return;
-      }
-
-      // Ensure team is mixed (not all students or all working professionals)
-      if (studentCount === 0 || workingProfCount === 0) {
-        alert(`Unable to create mixed team ${i + 1}. Need both students and working professionals for proper team composition.`);
-        return;
-      }
-
       if (teamMembers.length > 0) {
+        const workingProfCount = teamMembers.filter(member => member.experienceLevel === 'working professional').length;
+        const studentCount = teamMembers.filter(member => member.experienceLevel === 'student').length;
         const newTeam: Team = {
           id: Date.now().toString() + `-${i + 1}`,
-          name: `Team ${i + 1}`,
+          name: `Team ${String(i + 1).padStart(2, "0")}`,
           description: `Generated team with ${teamMembers.length} members (${workingProfCount} working professionals, ${studentCount} students)`,
-          members: teamMembers
+          members: teamMembers,
+          milestones: milestoneConfigs.map((m) => ({ ...m, completed: false })),
+          totalTime: 0,
         };
         newTeams.push(newTeam);
       }
+    }
+
+    // Distribute leftover members across teams (round-robin)
+    const leftovers = [...shuffledStudents, ...shuffledWorkingProfessionals];
+    if (leftovers.length > 0 && newTeams.length > 0) {
+      leftovers.forEach((member, idx) => {
+        const targetTeam = newTeams[idx % newTeams.length];
+        targetTeam.members.push(member);
+      });
+      // Update descriptions to reflect actual member counts
+      newTeams.forEach((team) => {
+        const wpCount = team.members.filter(m => m.experienceLevel === 'working professional').length;
+        const stCount = team.members.filter(m => m.experienceLevel === 'student').length;
+        team.description = `Generated team with ${team.members.length} members (${wpCount} working professionals, ${stCount} students)`;
+      });
+      toast.success(`${leftovers.length} leftover member${leftovers.length !== 1 ? "s" : ""} distributed across teams`);
     }
 
     setTeams([...teams, ...newTeams]);
@@ -410,8 +501,8 @@ const Teams = () => {
         });
         return;
       }
-      toast.success("Teams saved online", {
-        description: `Uploaded ${outcome.rowCount} people from your teams.`,
+      toast.success("Teams synced to Supabase", {
+        description: `Cleared previous data and uploaded ${outcome.rowCount} members across ${teams.length} teams.`,
       });
     } catch (err) {
       const message: string = err instanceof Error ? err.message : String(err);
@@ -426,16 +517,77 @@ const Teams = () => {
       <div className="mx-auto max-w-7xl">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <Users className="w-8 h-8 text-blue-400" />
-            <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
-              Teams Management
-            </h1>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <Users className="w-8 h-8 text-blue-400" />
+              <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent">
+                Teams Management
+              </h1>
+            </div>
+            {canDeleteTeams && teams.length > 0 && (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="border-red-600 text-red-400 hover:bg-red-900/30 hover:text-red-300"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    Delete All Teams
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="bg-gray-800 border-gray-700">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle className="text-white">
+                      Delete All Teams
+                    </AlertDialogTitle>
+                    <AlertDialogDescription className="text-gray-400">
+                      This will permanently remove all {teams.length} team{teams.length !== 1 ? "s" : ""} and their members. This cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="bg-gray-700 border-gray-600 text-white hover:bg-gray-600">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={async () => {
+                        setTeams([]);
+                        setImportedUsers([]);
+                        setStudents([]);
+                        setWorkingProfessionals([]);
+                        setTotalCount(0);
+                        setShowTeamGeneration(false);
+                        try {
+                          await executeDeleteAllLeaderboardTeamMembers();
+                          toast.success("Supabase cleared", {
+                            description: "All team records removed from Supabase.",
+                          });
+                        } catch (err) {
+                          const message = err instanceof Error ? err.message : String(err);
+                          toast.error("Failed to clear Supabase", { description: message });
+                        }
+                      }}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Delete All
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            )}
           </div>
           <p className="text-gray-400 text-xl">
             Manage and track all your teams' progress
           </p>
         </div>
+
+        {/* Timer active banner */}
+        {isTimerActive && (
+          <div className="mb-4 p-3 rounded-lg bg-yellow-900/20 border border-yellow-600/30 text-yellow-300 text-sm flex items-center gap-2">
+            <Users className="w-4 h-4" />
+            Team editing is disabled while the timer is running. Pause the timer to add new teams.
+          </div>
+        )}
 
         {/* Controls */}
         <div className="mb-8 space-y-4">
@@ -455,10 +607,11 @@ const Teams = () => {
                     onChange={handleFileImport}
                     className="hidden"
                     id="file-import"
+                    disabled={!canImportFile}
                   />
                   <label
                     htmlFor="file-import"
-                    className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors w-fit"
+                    className={`${canImportFile ? "cursor-pointer bg-blue-600 hover:bg-blue-700" : "cursor-not-allowed bg-blue-600/50"} text-white px-4 py-2 rounded-lg inline-flex items-center gap-2 transition-colors w-fit`}
                   >
                     <FileText className="w-4 h-4" />
                     Choose file
@@ -470,29 +623,53 @@ const Teams = () => {
                 <p className="text-sm text-gray-400">
                   Pull in your attendee list so you can divide people into teams.
                 </p>
-                {totalCount > 0 && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-gray-700 rounded-lg mt-auto">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="w-5 h-5 text-blue-400 shrink-0" />
-                      <div>
-                        <div className="text-white font-medium">Total</div>
-                        <div className="text-2xl font-bold text-blue-400">{totalCount}</div>
+                {(totalCount > 0 || liveStats.total > 0) && (
+                  <div className="space-y-2 mt-auto">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 bg-gray-700 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <UserCheck className="w-5 h-5 text-blue-400 shrink-0" />
+                        <div>
+                          <div className="text-white font-medium">Total in Teams</div>
+                          <div className="text-2xl font-bold text-blue-400">{liveStats.total}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <GraduationCap className="w-5 h-5 text-green-400 shrink-0" />
+                        <div>
+                          <div className="text-white font-medium">Students</div>
+                          <div className="text-2xl font-bold text-green-400">{liveStats.studentCount}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Briefcase className="w-5 h-5 text-purple-400 shrink-0" />
+                        <div>
+                          <div className="text-white font-medium">Working professionals</div>
+                          <div className="text-2xl font-bold text-purple-400">{liveStats.wpCount}</div>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <GraduationCap className="w-5 h-5 text-green-400 shrink-0" />
-                      <div>
-                        <div className="text-white font-medium">Students</div>
-                        <div className="text-2xl font-bold text-green-400">{students.length}</div>
+                    {totalCount > 0 && liveStats.total > 0 && totalCount !== liveStats.total && (
+                      <div className="text-xs space-y-1">
+                        <p className="text-yellow-400">
+                          ⚠️ {totalCount - liveStats.total} attendee{totalCount - liveStats.total !== 1 ? "s" : ""} from the imported list {totalCount - liveStats.total !== 1 ? "are" : "is"} not assigned to any team (imported: {totalCount}, in teams: {liveStats.total}).
+                        </p>
+                        <div className="max-h-32 overflow-y-auto bg-gray-800 rounded p-2 space-y-1">
+                          {importedUsers
+                            .filter((user) => {
+                              const emailLower = user.email.trim().toLowerCase();
+                              return !teams.some((team) =>
+                                team.members.some((m) => m.email.trim().toLowerCase() === emailLower)
+                              );
+                            })
+                            .map((user, idx) => (
+                              <div key={idx} className="text-gray-300 text-xs flex items-center gap-2">
+                                <span className="font-medium">{user.name}</span>
+                                <span className="text-gray-500">({user.email})</span>
+                              </div>
+                            ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Briefcase className="w-5 h-5 text-purple-400 shrink-0" />
-                      <div>
-                        <div className="text-white font-medium">Working professionals</div>
-                        <div className="text-2xl font-bold text-purple-400">{workingProfessionals.length}</div>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 )}
               </CardContent>
@@ -509,17 +686,63 @@ const Teams = () => {
                 <p className="text-sm text-gray-400">
                   Upload your roster to the shared leader board list (names, emails, teams).
                 </p>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    void executeSyncTeamsToSupabase();
-                  }}
-                  disabled={isSyncingToSupabase}
-                  className="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 self-start"
-                >
-                  <CloudUpload className="w-4 h-4 mr-2" />
-                  {isSyncingToSupabase ? "Uploading…" : "Upload teams"}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      void executeSyncTeamsToSupabase();
+                    }}
+                    disabled={isSyncingToSupabase || !canAddTeams}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60"
+                  >
+                    <CloudUpload className="w-4 h-4 mr-2" />
+                    {isSyncingToSupabase ? "Uploading…" : "Upload teams"}
+                  </Button>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={!canAddTeams}
+                        className="border-red-600 text-red-400 hover:bg-red-900/30 hover:text-red-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Clear Database
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-gray-800 border-gray-700">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-white">
+                          Clear Supabase Table
+                        </AlertDialogTitle>
+                        <AlertDialogDescription className="text-gray-400">
+                          This will delete all records from the Supabase leaderboard table. Local teams will not be affected. This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-gray-700 border-gray-600 text-white hover:bg-gray-600">
+                          Cancel
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          onClick={async () => {
+                            try {
+                              await executeDeleteAllLeaderboardTeamMembers();
+                              toast.success("Database cleared", {
+                                description: "All records removed from Supabase table.",
+                              });
+                            } catch (err) {
+                              const message = err instanceof Error ? err.message : String(err);
+                              toast.error("Failed to clear database", { description: message });
+                            }
+                          }}
+                          className="bg-red-600 hover:bg-red-700"
+                        >
+                          Clear All Records
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -562,18 +785,57 @@ const Teams = () => {
                 <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
                   <h4 className="text-blue-400 font-medium mb-2">Balanced Team Distribution:</h4>
                   <ul className="text-sm text-blue-300 space-y-1">
-                    <li>• Each team will have exactly {teamSize} members</li>
+                    <li>• Each team will have exactly {teamSize} members (+ leftovers distributed)</li>
                     <li>• Minimum {minWorkingProfessionals} working professional(s) per team</li>
                     <li>• Maximum {Math.floor((students.length + workingProfessionals.length) / teamSize)} teams can be created</li>
-                    <li>• Equal distribution: {Math.floor(workingProfessionals.length / Math.floor((students.length + workingProfessionals.length) / teamSize))} working professionals per team</li>
-                    <li>• {workingProfessionals.length % Math.floor((students.length + workingProfessionals.length) / teamSize)} team(s) will have 1 extra working professional</li>
+                    <li>• {(students.length + workingProfessionals.length) % teamSize} leftover member{(students.length + workingProfessionals.length) % teamSize !== 1 ? "s" : ""} will be distributed across teams</li>
                     <li>• All teams will be mixed (both students and working professionals)</li>
                   </ul>
                 </div>
 
+                {/* Preview Calculation */}
+                {showPreview && (() => {
+                  const total = students.length + workingProfessionals.length;
+                  const maxT = Math.floor(total / teamSize);
+                  const leftoverCount = total % teamSize;
+                  const allUsers = [...students, ...workingProfessionals];
+                  // Simulate: last N users would be leftovers (distributed round-robin)
+                  const leftoverUsers = allUsers.slice(maxT * teamSize);
+                  return (
+                    <div className="bg-yellow-900/20 border border-yellow-600/30 rounded-lg p-4 space-y-2">
+                      <h4 className="text-yellow-400 font-medium text-sm">Preview Calculation:</h4>
+                      <div className="text-sm text-yellow-300 space-y-1">
+                        <p>• {maxT} teams × {teamSize} members = {maxT * teamSize} assigned directly</p>
+                        <p>• {leftoverCount} leftover member{leftoverCount !== 1 ? "s" : ""} will be distributed across teams (some teams will have {teamSize + 1} members)</p>
+                        <p>• <strong>Everyone will be assigned. No one is left out.</strong></p>
+                      </div>
+                      {leftoverCount > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs text-yellow-400 mb-1">Potential leftover members (randomized during generation):</p>
+                          <div className="max-h-24 overflow-y-auto bg-gray-800 rounded p-2 space-y-0.5">
+                            {leftoverUsers.map((u, idx) => (
+                              <div key={idx} className="text-xs text-gray-300">
+                                {u.name} <span className="text-gray-500">({u.email})</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <div className="flex gap-2">
                   <Button
+                    onClick={() => setShowPreview(!showPreview)}
+                    variant="outline"
+                    className="bg-yellow-600/20 border-yellow-600 text-yellow-300 hover:bg-yellow-600/30"
+                  >
+                    {showPreview ? "Hide Preview" : "Preview"}
+                  </Button>
+                  <Button
                     onClick={generateTeams}
+                    disabled={!canImportFile}
                     className="bg-green-600 hover:bg-green-700"
                   >
                     <Users className="w-4 h-4 mr-2" />
@@ -604,9 +866,11 @@ const Teams = () => {
                     }
                     setShowManualForm(!showManualForm);
                   }}
+                  disabled={!canAddTeams || (totalCount === 0 && liveStats.total === 0)}
                   variant="outline"
                   size="sm"
                   className="bg-gray-700 border-gray-600 text-white hover:bg-gray-600 hover:text-white"
+                  title={totalCount === 0 && liveStats.total === 0 ? "Import attendees first" : undefined}
                 >
                   {showManualForm ? "Cancel" : "Create Team"}
                 </Button>
@@ -769,15 +1033,32 @@ const Teams = () => {
                         </p>
                       )}
                   </div>
-                  <Button
-                    onClick={() => deleteTeam(team.id)}
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-400 hover:text-red-300 hover:bg-red-900/20"
-                    title="Delete Team"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    {canEditTeams && (
+                      <Button
+                        onClick={() => setEditingTeamId(editingTeamId === team.id ? null : team.id)}
+                        variant="ghost"
+                        size="sm"
+                        className={editingTeamId === team.id
+                          ? "text-green-400 hover:text-green-300 hover:bg-green-900/20"
+                          : "text-blue-400 hover:text-blue-300 hover:bg-blue-900/20"
+                        }
+                        title={editingTeamId === team.id ? "Done Editing" : "Edit Team"}
+                      >
+                        {editingTeamId === team.id ? <Check className="w-4 h-4" /> : <Edit className="w-4 h-4" />}
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => deleteTeam(team.id)}
+                      disabled={!canDeleteTeams}
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400 hover:text-red-300 hover:bg-red-900/20 disabled:opacity-30 disabled:cursor-not-allowed"
+                      title={canDeleteTeams ? "Delete Team" : "Cannot delete while timer is active"}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
                 </div>
                 <hr className="my-3 border-gray-700" />
                 
@@ -825,6 +1106,17 @@ const Teams = () => {
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
+                        {editingTeamId === team.id && (
+                          <Button
+                            onClick={() => removeMemberFromTeam(team.id, index)}
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-400 hover:text-red-300 hover:bg-red-900/20 p-1 h-auto"
+                            title="Remove member"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -832,6 +1124,42 @@ const Teams = () => {
                   <div className="text-center py-4 text-gray-400">
                     <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">No members added yet</p>
+                  </div>
+                )}
+
+                {/* Add Member Form (when editing) */}
+                {editingTeamId === team.id && (
+                  <div className="mt-3 p-3 border border-gray-600 rounded-lg space-y-2">
+                    <div className="text-xs font-medium text-gray-300">Add Member</div>
+                    <Input
+                      placeholder="Name"
+                      value={editMemberName}
+                      onChange={(e) => setEditMemberName(e.target.value)}
+                      className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 text-sm"
+                    />
+                    <Input
+                      placeholder="Email"
+                      value={editMemberEmail}
+                      onChange={(e) => setEditMemberEmail(e.target.value)}
+                      className="bg-gray-700 border-gray-600 text-white placeholder-gray-400 text-sm"
+                    />
+                    <select
+                      value={editMemberExperience}
+                      onChange={(e) => setEditMemberExperience(e.target.value as "student" | "working professional")}
+                      className="w-full bg-gray-700 border border-gray-600 text-white rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="student">Student</option>
+                      <option value="working professional">Working Professional</option>
+                    </select>
+                    <Button
+                      onClick={() => addMemberToTeam(team.id)}
+                      disabled={!editMemberName.trim() || !editMemberEmail.trim()}
+                      size="sm"
+                      className="w-full bg-green-600 hover:bg-green-700"
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Add Member
+                    </Button>
                   </div>
                 )}
               </CardContent>

@@ -1,8 +1,16 @@
 import React, { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, Users, ChevronLeft, ChevronRight } from "lucide-react";
+import { Home, Users, Target, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useTeams } from "@/contexts/TeamsContext";
+import { useMilestones } from "@/hooks/useMilestones";
 
 interface SidebarProps {
   children: React.ReactNode;
@@ -11,17 +19,37 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ children }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const location = useLocation();
+  const { teams } = useTeams();
+  const { milestones } = useMilestones();
+
+  const isDashboardAccessible = teams.length > 0 && milestones.length > 0;
+
+  const dashboardTooltip = !isDashboardAccessible
+    ? teams.length === 0 && milestones.length === 0
+      ? "Add teams and milestones to access the Dashboard"
+      : teams.length === 0
+        ? "Add teams to access the Dashboard"
+        : "Add milestones to access the Dashboard"
+    : undefined;
 
   const navigationItems = [
     {
       name: "Dashboard",
       href: "/",
       icon: Home,
+      disabled: !isDashboardAccessible,
     },
     {
       name: "Teams",
       href: "/teams",
       icon: Users,
+      disabled: false,
+    },
+    {
+      name: "Milestones",
+      href: "/milestones",
+      icon: Target,
+      disabled: false,
     },
   ];
 
@@ -61,6 +89,33 @@ const Sidebar: React.FC<SidebarProps> = ({ children }) => {
               const isActive = location.pathname === item.href;
               const Icon = item.icon;
               
+              if (item.disabled) {
+                return (
+                  <li key={item.name}>
+                    <TooltipProvider delayDuration={0}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div
+                            className={cn(
+                              "flex items-center gap-3 px-3 py-2 rounded-lg cursor-not-allowed opacity-40",
+                              "text-gray-500"
+                            )}
+                          >
+                            <Icon className="w-5 h-5 flex-shrink-0" />
+                            {!isCollapsed && (
+                              <span className="text-sm font-medium">{item.name}</span>
+                            )}
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="bg-gray-700 text-white border-gray-600">
+                          <p>{dashboardTooltip}</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </li>
+                );
+              }
+
               return (
                 <li key={item.name}>
                   <Link
