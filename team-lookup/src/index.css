@@ -66,3 +66,81 @@ body {
     transparent 14px
   );
 }
+
+/* Discussions page: dark, liquid-glass theme (scoped — does not affect other pages). */
+.discussions-page {
+  color-scheme: dark;
+  --disc-bg: #05070d;
+  --disc-primary: #0b49ab;
+  --disc-primary-soft: #2f6fe0;
+  --disc-secondary: #ffffff;
+  --disc-text: #ffffff;
+  --disc-muted: rgb(255 255 255 / 0.62);
+  --disc-border: rgb(255 255 255 / 0.14);
+  background-color: var(--disc-bg);
+  background-image:
+    radial-gradient(circle at 12% 8%, rgb(11 73 171 / 0.35), transparent 45%),
+    radial-gradient(circle at 88% 0%, rgb(47 111 224 / 0.22), transparent 40%),
+    radial-gradient(circle at 50% 100%, rgb(11 73 171 / 0.18), transparent 50%);
+}
+
+.discussions-grid {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(180deg, black, transparent 75%);
+}
+
+.glass-panel {
+  background: linear-gradient(
+    150deg,
+    rgb(255 255 255 / 0.1),
+    rgb(255 255 255 / 0.03) 60%
+  );
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  border: 1px solid var(--disc-border);
+  box-shadow:
+    0 20px 45px -20px rgb(0 0 0 / 0.55),
+    inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+
+.glass-panel-raised {
+  background: linear-gradient(
+    150deg,
+    rgb(255 255 255 / 0.14),
+    rgb(255 255 255 / 0.04) 65%
+  );
+  backdrop-filter: blur(28px) saturate(170%);
+  -webkit-backdrop-filter: blur(28px) saturate(170%);
+  border: 1px solid rgb(255 255 255 / 0.2);
+  box-shadow:
+    0 30px 60px -25px rgb(0 0 0 / 0.6),
+    inset 0 1px 0 rgb(255 255 255 / 0.16);
+}
+
+.upvote-button {
+  background: linear-gradient(
+    160deg,
+    rgb(255 255 255 / 0.14),
+    rgb(255 255 255 / 0.04)
+  );
+  border: 1px solid rgb(255 255 255 / 0.18);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 120ms ease, background 160ms ease, border-color 160ms ease;
+}
+
+.upvote-button:hover {
+  border-color: rgb(11 73 171 / 0.55);
+  background: linear-gradient(
+    160deg,
+    rgb(11 73 171 / 0.4),
+    rgb(11 73 171 / 0.12)
+  );
+}
+
+.upvote-button:active {
+  transform: scale(0.94);
+}
