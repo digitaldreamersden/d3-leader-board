@@ -70,7 +70,8 @@ function chunkArray<T>(items: ReadonlyArray<T>, chunkSize: number): T[][] {
 }
 
 /**
- * Upserts all rows in batches with per-batch retries (safe for 200+ members).
+ * Deletes all existing rows, then upserts current teams in batches.
+ * This ensures a full sync — removed members get deleted from Supabase.
  */
 export async function executeSyncLeaderboardTeamMembers(
   teams: ReadonlyArray<LeaderboardTeamsSyncTeam>,
@@ -81,14 +82,29 @@ export async function executeSyncLeaderboardTeamMembers(
 ): Promise<LeaderboardTeamsSyncOutcome> {
   const rows: LeaderboardTeamMemberUpsertRow[] =
     executeBuildLeaderboardTeamMemberRows(teams);
-  if (rows.length === 0) {
-    return { rowCount: 0, batchCount: 0 };
-  }
   const batchSize: number = options.batchSize ?? DEFAULT_BATCH_SIZE;
   const maxAttemptsPerBatch: number =
     options.maxAttemptsPerBatch ?? DEFAULT_MAX_ATTEMPTS_PER_BATCH;
   const tableName: string = resolveTeamTableName();
   const client = getSupabaseBrowserClient();
+
+  // Step 1: Delete all existing rows
+  await executeWithRetry(
+    async () => {
+      const { error } = await client.from(tableName).delete().neq("email", "");
+      if (error != null) {
+        throw error;
+      }
+    },
+    { maxAttempts: maxAttemptsPerBatch },
+  );
+
+  // Step 2: Insert current teams in batches (skip if no rows)
+  if (rows.length === 0) {
+    return { rowCount: 0, batchCount: 0 };
+  }
+
+  // Step 2: Insert current teams in batches
   const batches: LeaderboardTeamMemberUpsertRow[][] = chunkArray(rows, batchSize);
   for (const batch of batches) {
     await executeWithRetry(
@@ -105,4 +121,24 @@ export async function executeSyncLeaderboardTeamMembers(
     );
   }
   return { rowCount: rows.length, batchCount: batches.length };
+}
+
+/**
+ * Deletes all rows from the Supabase leaderboard_team_members table.
+ */
+export async function executeDeleteAllLeaderboardTeamMembers(): Promise<void> {
+  const tableName: string = resolveTeamTableName();
+  const client = getSupabaseBrowserClient();
+  const { error, count } = await client.from(tableName).delete({ count: "exact" }).neq("email", "");
+  if (error != null) {
+    throw new Error(`Supabase delete failed: ${error.message}`);
+  }
+  // If count is 0 and no error, RLS might be blocking — try alternative filter
+  if (count === 0) {
+    // Try with a different filter in case neq doesn't match
+    const { error: err2 } = await client.from(tableName).delete().not("email", "is", null);
+    if (err2 != null) {
+      throw new Error(`Supabase delete (fallback) failed: ${err2.message}`);
+    }
+  }
 }
