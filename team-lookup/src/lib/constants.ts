@@ -20,26 +20,26 @@ export interface MilestoneItem {
 export const MILESTONES: readonly MilestoneItem[] = [
   {
     step: 1,
-    timeLabel: "0–15 min",
-    title: "Define the Persona",
-    goal: 'Establish the "Who" and "What."',
-    body: "Clearly define your agent\u2019s role, its specific objective, and the tools it needs (like web search or a calculator). By minute 15, you should have your environment set up and your base prompt or configuration initialized.",
+    timeLabel: "0–10 min",
+    title: "Define the Problem",
+    goal: 'Establish the "Why" and "Who."',
+    body: "Pick a use case/product, define the problem and users, and identify the agents and their responsibilities.",
     icon: Bot,
   },
   {
     step: 2,
-    timeLabel: "15–45 min",
-    title: "Architect the Flow",
-    goal: "Connect the logic.",
-    body: 'This is the core building phase. Use your framework of choice to wire the agent\u2019s reasoning paths. The milestone is hit when your agent can successfully take an input, process it through its logic "brain," and move toward a solution without manual intervention.',
+    timeLabel: "10–30 min",
+    title: "Design the System",
+    goal: 'Map the "How."',
+    body: 'Design the architecture: agents, LLMs, tools, data, memory, orchestration, and human-in-the-loop. Map the flow from user input to outcome.',
     icon: Workflow,
   },
   {
     step: 3,
-    timeLabel: "45–60 min",
-    title: "The Live Demo",
-    goal: 'Ship the "Vibe."',
-    body: 'The final sprint is for refining the output and catching edge cases. To complete the challenge, your agent must successfully execute a "live mission"—producing a final, structured result that proves it can handle the task it was built for.',
+    timeLabel: "30–45 min",
+    title: "Present & Defend",
+    goal: 'Prove the design.',
+    body: 'Walk through one user journey, explain key design decisions and trade-offs, and highlight how your system handles failures and real-world constraints.',
     icon: Presentation,
   },
 ];
@@ -47,6 +47,6 @@ export const MILESTONES: readonly MilestoneItem[] = [
 /**
  * Sprint page copy. Update per event.
  */
-export const SPRINT_TITLE = "Vibe & Build: The 60-Minute Agent Sprint";
+export const SPRINT_TITLE = "Agentic Systems: The 45-Minute System Design Sprint";
 export const SPRINT_INTRO =
-  'One hour. No overthinking. Just pure flow. This challenge invites you to lean into "vibe coding"—using natural language and AI-assisted tools to manifest a functional AI agent from scratch. Whether you\'re a seasoned dev or a curious builder, it\'s time to see how fast you can turn a prompt into a product.';
+  '"Pick a real problem. Think like a systems architect. Design an agentic system that could solve it.\n\nIn this group activity, choose a real-world use case or existing agentic product and design the system behind it. Focus on understanding the agents, tools, data, orchestration, and decisions that make the system work.";
