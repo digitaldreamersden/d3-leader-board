@@ -866,7 +866,7 @@ const Teams = () => {
                     }
                     setShowManualForm(!showManualForm);
                   }}
-                  disabled={!canAddTeams || (totalCount === 0 && liveStats.total === 0)}
+                  disabled={!canAddTeams}
                   variant="outline"
                   size="sm"
                   className="bg-gray-700 border-gray-600 text-white hover:bg-gray-600 hover:text-white"
