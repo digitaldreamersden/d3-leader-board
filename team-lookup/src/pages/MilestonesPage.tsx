@@ -31,7 +31,7 @@ export default function MilestonesPage(): JSX.Element {
           <h2 id="sprint-intro-heading" className="sr-only">
             About this sprint
           </h2>
-          <p className="text-base font-medium leading-relaxed text-[var(--color-text)]">
+          <p className="whitespace-pre-line text-base font-medium leading-relaxed text-[var(--color-text)]">
             {SPRINT_INTRO}
           </p>
         </section>
