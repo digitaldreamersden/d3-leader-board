@@ -49,4 +49,4 @@ export const MILESTONES: readonly MilestoneItem[] = [
  */
 export const SPRINT_TITLE = "Agentic Systems: The 45-Minute System Design Sprint";
 export const SPRINT_INTRO =
-  '"Pick a real problem. Think like a systems architect. Design an agentic system that could solve it.\n\nIn this group activity, choose a real-world use case or existing agentic product and design the system behind it. Focus on understanding the agents, tools, data, orchestration, and decisions that make the system work.";
+  "Pick a real problem. Think like a systems architect. Design an agentic system that could solve it.\n\nIn this group activity, choose a real-world use case or existing agentic product and design the system behind it. Focus on understanding the agents, tools, data, orchestration, and decisions that make the system work.";
