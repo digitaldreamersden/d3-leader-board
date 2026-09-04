@@ -17,7 +17,7 @@ export default function MilestonesPage(): JSX.Element {
 
         <header className="mt-8">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
-            Agent sprint
+            Agent Architecture Sprint
           </p>
           <h1 className="mt-2 text-2xl font-extrabold leading-tight tracking-tight text-[var(--color-text)] sm:text-3xl">
             {SPRINT_TITLE}
@@ -49,7 +49,7 @@ export default function MilestonesPage(): JSX.Element {
             The three-step milestones
           </h2>
           <p className="mt-1 text-sm font-medium text-muted">
-            Track your progress through the hour—each block builds on the last.
+            45 minutes. Three stages. From problem to architecture.
           </p>
 
           <ol className="mt-8 space-y-6">
